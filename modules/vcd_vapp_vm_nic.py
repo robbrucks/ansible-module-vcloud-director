@@ -124,8 +124,8 @@ from ansible.module_utils.vcd import VcdAnsibleModule
 from pyvcloud.vcd.exceptions import EntityNotFoundException, OperationNotSupportedException
 
 
-VAPP_VM_NIC_STATES = ['present', 'absent', 'update']
-VAPP_VM_NIC_OPERATIONS = ['read']
+VAPP_VM_NIC_STATES = ['present', 'absent']
+VAPP_VM_NIC_OPERATIONS = ['read', 'update']
 
 
 def vapp_vm_nic_argument_spec():
@@ -154,17 +154,17 @@ class VappVMNIC(VcdAnsibleModule):
         if state == "present":
             return self.add_nic()
 
-        if state == "update":
-            return self.update_nic()
-
         if state == "absent":
             return self.delete_nic()
 
     def manage_operations(self):
         operation = self.params.get('operation')
-
         if operation == "read":
             return self.read_nics()
+
+        if operation == "update":
+            return self.update_nic()
+
 
     def get_resource(self):
         vapp = self.params.get('vapp')
@@ -260,14 +260,23 @@ class VappVMNIC(VcdAnsibleModule):
         if nic_id not in nic_indexs:
             raise EntityNotFoundException('Can\'t find the specified VM nic')
         nic_to_update = nic_indexs.index(nic_id)
+        nic_to_update = nic_indexs.index(0)
 
         if network:
             nics.NetworkConnection[nic_to_update].set('network', network)
+            nic = E.NetworkConnection(
+                E.NetworkConnectionIndex(nic_to_update),
+                E.IsConnected(True),
+                network=network)
             response['changed'] = True
 
         if ip_allocation_mode:
             allocation_mode_element = E.IpAddressAllocationMode(ip_allocation_mode)
-            nics.NetworkConnection[nic_to_update].IpAddressAllocationMode = allocation_mode_element
+            nic = E.NetworkConnection(
+                E.NetworkConnectionIndex(nic_to_update),
+                E.IsConnected(True),
+                E.IpAddressAllocationMode(allocation_mode_element),
+                network=network)
             response['changed'] = True
 
         if ip_address:
@@ -345,12 +354,14 @@ def main():
     module = VappVMNIC(argument_spec=argument_spec, supports_check_mode=True)
 
     try:
-        if module.params.get('state'):
-            response = module.manage_states()
+        if module.params.get('operation') and module.params.get('state'):
+            raise Exception('One of either "state" or "operation" should be provided.')
         elif module.params.get('operation'):
             response = module.manage_operations()
+        elif module.params.get('state'):
+            response = module.manage_states()
         else:
-            raise Exception('One of the state/operation should be provided.')
+            raise Exception('One of either "state" or "operation" should be provided.')
 
     except Exception as error:
         response['msg'] = error
